@@ -54,12 +54,14 @@ export function WebcamFeed({ onCapture, isAnalyzing, captureInterval, isActive, 
       if (!videoRef.current || !canvasRef.current) return;
       const video = videoRef.current;
       const canvas = canvasRef.current;
+      if (video.videoWidth === 0 || video.videoHeight === 0) return;
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
       ctx.drawImage(video, 0, 0);
       const base64 = canvas.toDataURL("image/jpeg", 0.7).split(",")[1];
+      if (!base64 || base64.length < 100) return;
       onCapture(base64);
     }, captureInterval);
     return () => clearInterval(interval);
