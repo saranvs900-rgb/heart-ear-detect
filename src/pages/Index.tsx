@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { WebcamFeed } from "@/components/WebcamFeed";
 import { EmotionBar } from "@/components/EmotionBar";
@@ -11,7 +11,7 @@ interface EmotionResult {
   summary: string;
 }
 
-const CAPTURE_INTERVAL = 8000;
+const CAPTURE_INTERVAL = 12000;
 
 const EMOTION_ORDER = ["happy", "sad", "angry", "surprised", "fearful", "disgusted", "neutral", "contempt", "confused", "excited"];
 
@@ -26,8 +26,12 @@ const Index = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [result, setResult] = useState<EmotionResult>(defaultEmotions);
   const [analysisCount, setAnalysisCount] = useState(0);
+  const [rateLimited, setRateLimited] = useState(false);
+  const rateLimitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleCapture = useCallback(async (imageBase64: string) => {
+    if (rateLimited) return; // skip while cooling down
+
     setIsAnalyzing(true);
     try {
       const { data, error } = await supabase.functions.invoke("analyze-emotion", {
@@ -35,12 +39,25 @@ const Index = () => {
       });
 
       if (error) {
+        // Check for rate limit (429)
+        const msg = error?.message || "";
+        if (msg.includes("429") || msg.includes("rate")) {
+          setRateLimited(true);
+          toast.warning("Rate limited — pausing analysis for 30s");
+          rateLimitTimer.current = setTimeout(() => setRateLimited(false), 30000);
+          return;
+        }
         console.error("Analysis error:", error);
-        toast.error("Analysis failed. Retrying...");
         return;
       }
 
       if (data?.error) {
+        if (data.error.includes("Rate limited")) {
+          setRateLimited(true);
+          toast.warning("Rate limited — pausing analysis for 30s");
+          rateLimitTimer.current = setTimeout(() => setRateLimited(false), 30000);
+          return;
+        }
         toast.error(data.error);
         return;
       }
@@ -54,7 +71,7 @@ const Index = () => {
     } finally {
       setIsAnalyzing(false);
     }
-  }, []);
+  }, [rateLimited]);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -71,6 +88,12 @@ const Index = () => {
             </div>
           </div>
           <div className="flex items-center gap-4 text-xs font-mono text-muted-foreground">
+            {rateLimited && (
+              <div className="flex items-center gap-1.5 text-destructive">
+                <div className="w-2 h-2 rounded-full bg-destructive animate-pulse" />
+                COOLDOWN
+              </div>
+            )}
             <div className="flex items-center gap-1.5">
               <div className={`w-2 h-2 rounded-full ${isActive ? "bg-primary animate-pulse" : "bg-muted-foreground"}`} />
               {isActive ? "LIVE" : "OFFLINE"}
@@ -94,12 +117,16 @@ const Index = () => {
             </div>
             <WebcamFeed
               onCapture={handleCapture}
-              isAnalyzing={isAnalyzing}
+              isAnalyzing={isAnalyzing || rateLimited}
               captureInterval={CAPTURE_INTERVAL}
               isActive={isActive}
               onToggle={() => {
                 setIsActive((a) => !a);
-                if (isActive) setResult(defaultEmotions);
+                if (isActive) {
+                  setResult(defaultEmotions);
+                  setRateLimited(false);
+                  if (rateLimitTimer.current) clearTimeout(rateLimitTimer.current);
+                }
               }}
             />
             {/* Summary */}
