@@ -11,7 +11,7 @@ interface EmotionResult {
   summary: string;
 }
 
-const CAPTURE_INTERVAL = 4000;
+const CAPTURE_INTERVAL = 8000;
 
 const EMOTION_ORDER = ["happy", "sad", "angry", "surprised", "fearful", "disgusted", "neutral", "contempt", "confused", "excited"];
 
